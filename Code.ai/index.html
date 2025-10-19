@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code.ai - Free AI Coding Assistant</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <h1>Code.ai</h1>
+    <p>Making coding easier for free</p>
+    
+    <!-- Main Container with Sidebar and Chat -->
+    <div class="main-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h3>Chat History</h3>
+                <button id="newChatBtn" class="new-chat-btn">+ New Chat</button>
+            </div>
+            <div class="chat-list" id="chatList">
+                <!-- Chat sessions will appear here -->
+            </div>
+        </div>
+
+        <!-- Chat Container -->
+        <div class="chat-container">
+            <div class="chat-header">
+                <button id="clearBtn" class="clear-btn">🗑️ Clear History</button>
+            </div>
+            <div class="messages" id="messages">
+                <!-- Messages will be loaded here -->
+            </div>
+            <div class="input-area">
+                <input type="text" id="userInput" placeholder="Ask me anything about coding..." />
+                <button id="sendBtn">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Social Links -->
+    <div class="social-links">
+        <a href="https://www.youtube.com/@TIV2_CREW_OFFICIAL" target="_blank">
+            <button class="social-btn youtube"></button>
+        </a>
+        <!-- Add more social links here -->
+    </div>
+
+    <script>
+        const messagesDiv = document.getElementById('messages');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const newChatBtn = document.getElementById('newChatBtn');
+        const chatList = document.getElementById('chatList');
+
+        // LM Studio API endpoint
+        const API_URL = 'http://localhost:1234/v1/chat/completions';
+
+        // Current chat session
+        let currentChatId = null;
+        let allChats = {};
+
+        // Load all chats on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            loadAllChats();
+            if (Object.keys(allChats).length === 0) {
+                createNewChat();
+            } else {
+                // Load the most recent chat
+                const chatIds = Object.keys(allChats).sort((a, b) => 
+                    allChats[b].lastUpdated - allChats[a].lastUpdated
+                );
+                loadChat(chatIds[0]);
+            }
+        });
+
+        // New chat button
+        newChatBtn.addEventListener('click', createNewChat);
+
+        // Send message on button click
+        sendBtn.addEventListener('click', sendMessage);
+
+        // Send message on Enter key
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Clear current chat
+        clearBtn.addEventListener('click', () => {
+            if (confirm('Are you sure you want to clear this chat?')) {
+                if (currentChatId && allChats[currentChatId]) {
+                    delete allChats[currentChatId];
+                    saveAllChats();
+                    createNewChat();
+                    renderChatList();
+                }
+            }
+        });
+
+        function createNewChat() {
+            const chatId = Date.now().toString();
+            currentChatId = chatId;
+            
+            allChats[chatId] = {
+                id: chatId,
+                name: 'New Chat',
+                messages: [],
+                conversationHistory: [],
+                lastUpdated: Date.now()
+            };
+            
+            saveAllChats();
+            renderChatList();
+            messagesDiv.innerHTML = '';
+            addMessage('👋 Hi! I\'m your AI coding assistant powered by Qwen Coder. Ask me anything about programming!', 'ai');
+        }
+
+        function loadChat(chatId) {
+            currentChatId = chatId;
+            const chat = allChats[chatId];
+            
+            messagesDiv.innerHTML = '';
+            
+            if (chat.messages.length === 0) {
+                addMessage('👋 Hi! I\'m your AI coding assistant powered by Qwen Coder. Ask me anything about programming!', 'ai');
+            } else {
+                chat.messages.forEach(msg => {
+                    addMessageToUI(msg.text, msg.type);
+                });
+            }
+            
+            renderChatList();
+        }
+
+        function generateChatName(firstMessage) {
+            // Take first 30 characters of the message as the chat name
+            let name = firstMessage.trim();
+            if (name.length > 30) {
+                name = name.substring(0, 30) + '...';
+            }
+            return name || 'New Chat';
+        }
+
+        function loadAllChats() {
+            const saved = localStorage.getItem('codeai_all_chats');
+            if (saved) {
+                allChats = JSON.parse(saved);
+            }
+        }
+
+        function saveAllChats() {
+            localStorage.setItem('codeai_all_chats', JSON.stringify(allChats));
+        }
+
+        function renderChatList() {
+            chatList.innerHTML = '';
+            
+            // Sort chats by last updated
+            const sortedChats = Object.values(allChats).sort((a, b) => 
+                b.lastUpdated - a.lastUpdated
+            );
+            
+            sortedChats.forEach(chat => {
+                const chatItem = document.createElement('div');
+                chatItem.className = 'chat-item';
+                if (chat.id === currentChatId) {
+                    chatItem.classList.add('active');
+                }
+                
+                const preview = chat.messages.length > 0 ? 
+                    chat.messages[0].text.substring(0, 40) + '...' : 
+                    'No messages yet';
+                
+                chatItem.innerHTML = `
+                    <div class="chat-item-name">${chat.name}</div>
+                    <div class="chat-item-preview">${preview}</div>
+                `;
+                
+                chatItem.addEventListener('click', () => loadChat(chat.id));
+                chatList.appendChild(chatItem);
+            });
+        }
+
+        async function sendMessage() {
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            const chat = allChats[currentChatId];
+            
+            // Generate chat name from first message
+            if (chat.messages.length === 0) {
+                chat.name = generateChatName(message);
+            }
+
+            // Add user message to chat
+            addMessage(message, 'user');
+            userInput.value = '';
+            sendBtn.disabled = true;
+
+            // Add user message to history
+            chat.conversationHistory.push({
+                role: 'user',
+                content: message
+            });
+            
+            chat.lastUpdated = Date.now();
+            saveAllChats();
+            renderChatList();
+
+            // Show loading indicator
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'loading';
+            loadingDiv.textContent = 'Thinking...';
+            messagesDiv.appendChild(loadingDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        model: 'qwen-coder',
+                        messages: [
+                            {
+                                role: 'system',
+                                content: 'You are a helpful coding assistant. Provide clear, concise code examples and explanations. Format code blocks properly.'
+                            },
+                            ...chat.conversationHistory
+                        ],
+                        temperature: 0.7,
+                        max_tokens: 2000,
+                        stream: false
+                    })
+                });
+
+                // Remove loading indicator
+                messagesDiv.removeChild(loadingDiv);
+
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status} - Make sure LM Studio is running on port 1234 and CORS is enabled`);
+                }
+
+                const data = await response.json();
+                const aiResponse = data.choices[0].message.content;
+
+                // Add AI response to history
+                chat.conversationHistory.push({
+                    role: 'assistant',
+                    content: aiResponse
+                });
+
+                // Display AI response
+                addMessage(aiResponse, 'ai');
+                chat.lastUpdated = Date.now();
+                saveAllChats();
+                renderChatList();
+
+            } catch (error) {
+                messagesDiv.removeChild(loadingDiv);
+                showError('❌ Error: ' + error.message + '\n\nMake sure LM Studio is running and CORS is enabled!');
+                console.error('Error:', error);
+            }
+
+            sendBtn.disabled = false;
+            userInput.focus();
+        }
+
+        function addMessage(text, type) {
+            const chat = allChats[currentChatId];
+            // Save to message history
+            chat.messages.push({ text, type });
+            chat.lastUpdated = Date.now();
+            saveAllChats();
+            
+            // Add to UI
+            addMessageToUI(text, type);
+        }
+
+        function addMessageToUI(text, type) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}-message`;
+            
+            if (type === 'ai') {
+                // Format code blocks in AI responses
+                messageDiv.innerHTML = formatCodeBlocks(text);
+            } else {
+                messageDiv.textContent = text;
+            }
+            
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function formatCodeBlocks(text) {
+            // Replace code blocks with proper formatting
+            text = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+                return `<pre><code>${escapeHtml(code.trim())}</code></pre>`;
+            });
+            
+            // Replace inline code
+            text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+            
+            // Convert newlines to <br>
+            text = text.replace(/\n/g, '<br>');
+            
+            return text;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'message error';
+            errorDiv.textContent = message;
+            messagesDiv.appendChild(errorDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+    </script>
+</body>
+</html>
